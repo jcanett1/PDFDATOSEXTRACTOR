@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PDF a Excel - Extractor de Datos</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- PDF.js library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  
+  <!-- SheetJS (XLSX) for Excel export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  
+  <!-- Toastify JS for notifications -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  
+  <style id="app-style">
+    .drag-area {
+      border: 2px dashed #4F46E5;
+      transition: all 0.3s ease;
+    }
+    
+    .drag-area.active {
+      border: 2px solid #4F46E5;
+      background-color: rgba(79, 70, 229, 0.1);
+    }
+    
+    #pdf-viewer {
+      min-height: 500px;
+      background-color: #f8f8f8;
+      overflow: auto;
+    }
+    
+    .editable-cell:hover {
+      background-color: #f0f9ff;
+    }
+    
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      flex-direction: column;
+    }
+    
+    .spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border-left-color: #4F46E5;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .data-table-container {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    @media (max-width: 768px) {
+      .pdf-data-container {
+        flex-direction: column;
+      }
+      
+      #pdf-viewer {
+        min-height: 300px;
+        max-height: 400px;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <header class="bg-indigo-600 text-white p-4 shadow-md">
+    <div class="container mx-auto flex justify-between items-center">
+      <h1 class="text-2xl font-bold">PDF a Excel - Extractor de Datos</h1>
+      <div>
+        <a href="javascript:void(0)" class="text-white hover:text-indigo-200 text-sm">
+          <i class="fas fa-question-circle mr-1"></i> Ayuda
+        </a>
+      </div>
+    </div>
+  </header>
+  
+  <main class="container mx-auto p-4 mt-6">
+    <div id="upload-section" class="mb-8">
+      <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Subir PDF para extracción</h2>
+        
+        <div id="drag-area" class="drag-area p-8 rounded-lg cursor-pointer flex flex-col items-center justify-center">
+          <i class="fas fa-file-pdf text-5xl text-indigo-600 mb-4"></i>
+          <p class="text-gray-700 text-center mb-2">Arrastra y suelta tu archivo PDF aquí</p>
+          <p class="text-gray-500 text-sm mb-4">O</p>
+          <label for="file-input" class="bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded cursor-pointer transition">
+            Seleccionar archivo
+          </label>
+          <input type="file" id="file-input" accept=".pdf" class="hidden">
+          <p class="text-gray-500 text-sm mt-4">Tamaño máximo: 50MB</p>
+        </div>
+      </div>
+    </div>
+    
+    <div id="document-section" class="hidden mb-8">
+      <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">Documento PDF</h2>
+          <div>
+            <span id="file-name" class="text-sm text-gray-600 mr-2">nombre-del-archivo.pdf</span>
+            <button id="change-file" class="text-indigo-600 hover:text-indigo-800 text-sm">
+              <i class="fas fa-exchange-alt"></i> Cambiar
+            </button>
+          </div>
+        </div>
+        
+        <div class="flex pdf-data-container gap-6 flex-col md:flex-row">
+          <div class="w-full md:w-1/2">
+            <div id="pdf-viewer" class="border rounded-lg"></div>
+          </div>
+          
+          <div class="w-full md:w-1/2">
+            <button id="extract-data" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg mb-4 flex items-center justify-center transition">
+              <i class="fas fa-magic mr-2"></i> Extraer Datos
+            </button>
+            
+            <div id="extraction-info" class="hidden">
+              <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4">
+                <div class="flex">
+                  <div class="flex-shrink-0">
+                    <i class="fas fa-info-circle text-blue-400"></i>
+                  </div>
+                  <div class="ml-3">
+                    <p class="text-sm text-blue-700">
+                      Los datos han sido extraídos. Revisa y edita cualquier información incorrecta en la tabla a continuación.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="data-section" class="hidden mb-20">
+      <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Datos Extraídos</h2>
+        
+        <div class="data-table-container">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RFC</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Serie y Folio</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Folio Fiscal</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cantidad</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Clave SAT</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Concepto</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio Unitario</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Importe</th>
+              </tr>
+            </thead>
+            <tbody id="data-table-body" class="bg-white divide-y divide-gray-200">
+              <!-- Data will be inserted here -->
+            </tbody>
+          </table>
+        </div>
+        
+        <div id="no-data-message" class="py-8 text-center">
+          <p class="text-gray-500">No hay datos disponibles. Primero extrae la información del PDF.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+  
+  <footer class="fixed bottom-0 left-0 w-full bg-white border-t shadow-md p-4">
+    <div class="container mx-auto flex justify-between items-center">
+      <div>
+        <p class="text-sm text-gray-600">Los datos extraídos son guardados localmente durante la sesión.</p>
+      </div>
+      <button id="export-excel" class="bg-green-600 hover:bg-green-700 text-white py-2 px-6 rounded-lg flex items-center transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+        <i class="fas fa-file-excel mr-2"></i> Exportar a Excel
+      </button>
+    </div>
+  </footer>
+  
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="spinner mb-4"></div>
+    <p id="loading-text" class="text-gray-700">Procesando documento...</p>
+  </div>
+
+  <script id="app-script">
+    // Initialize PDF.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    
+    // DOM elements
+    const dragArea = document.getElementById('drag-area');
+    const fileInput = document.getElementById('file-input');
+    const uploadSection = document.getElementById('upload-section');
+    const documentSection = document.getElementById('document-section');
+    const dataSection = document.getElementById('data-section');
+    const pdfViewer = document.getElementById('pdf-viewer');
+    const fileName = document.getElementById('file-name');
+    const changeFileBtn = document.getElementById('change-file');
+    const extractDataBtn = document.getElementById('extract-data');
+    const exportExcelBtn = document.getElementById('export-excel');
+    const dataTableBody = document.getElementById('data-table-body');
+    const noDataMessage = document.getElementById('no-data-message');
+    const extractionInfo = document.getElementById('extraction-info');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
+    
+    // State variables
+    let currentPdfFile = null;
+    let extractedData = null;
+    let pdfDoc = null;
+    let currentPage = 1;
+    let pageRendering = false;
+    
+    // Event Listeners
+    dragArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dragArea.classList.add('active');
+    });
+    
+    dragArea.addEventListener('dragleave', () => {
+      dragArea.classList.remove('active');
+    });
+    
+    dragArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dragArea.classList.remove('active');
+      
+      const file = e.dataTransfer.files[0];
+      handleFileUpload(file);
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        handleFileUpload(file);
+      }
+    });
+    
+    dragArea.addEventListener('click', () => {
+      fileInput.click();
+    });
+    
+    changeFileBtn.addEventListener('click', () => {
+      resetApp();
+      uploadSection.classList.remove('hidden');
+      documentSection.classList.add('hidden');
+      dataSection.classList.add('hidden');
+    });
+    
+    extractDataBtn.addEventListener('click', async () => {
+      if (!currentPdfFile) return;
+      
+      showLoading('Extrayendo datos del PDF...');
+      
+      try {
+        // Simulate API call for extracting data
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Create sample extracted data (in a real app, this would come from the API)
+        extractedData = [
+          {
+            nombre: 'Empresa Demo SA de CV',
+            rfc: 'EDM201505HJ7',
+            serieYFolio: 'A-12345',
+            folioFiscal: 'FOLIO-FISCAL-UUID-12345-67890',
+            cantidad: '10',
+            unidad: 'PZA',
+            claveSAT: '43211500',
+            concepto: 'Computadoras portátiles',
+            precioUnitario: '15000.00',
+            importe: '150000.00'
+          },
+          {
+            nombre: 'Empresa Demo SA de CV',
+            rfc: 'EDM201505HJ7',
+            serieYFolio: 'A-12345',
+            folioFiscal: 'FOLIO-FISCAL-UUID-12345-67890',
+            cantidad: '5',
+            unidad: 'PZA',
+            claveSAT: '43211900',
+            concepto: 'Monitores de computadora',
+            precioUnitario: '3500.00',
+            importe: '17500.00'
+          }
+        ];
+        
+        // Update the UI
+        populateDataTable(extractedData);
+        dataSection.classList.remove('hidden');
+        extractionInfo.classList.remove('hidden');
+        exportExcelBtn.disabled = false;
+        
+        // Save to localStorage
+        saveToLocalStorage();
+        
+        showNotification('Datos extraídos correctamente', 'success');
+      } catch (error) {
+        console.error('Error extracting data:', error);
+        showNotification('Error al extraer datos del PDF', 'error');
+      } finally {
+        hideLoading();
+      }
+    });
+    
+    exportExcelBtn.addEventListener('click', async () => {
+      if (!extractedData || extractedData.length === 0) return;
+      
+      showLoading('Generando archivo Excel...');
+      
+      try {
+        // Simulate API call for exporting to Excel
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Create workbook
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.json_to_sheet(extractedData);
+        
+        // Add the worksheet to the workbook
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Datos Extraídos');
+        
+        // Generate Excel file
+        const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        
+        // Create Blob and download
+        const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'datos_extraidos.xlsx';
+        link.click();
+        
+        URL.revokeObjectURL(url);
+        
+        showNotification('Excel generado y descargado correctamente', 'success');
+      } catch (error) {
+        console.error('Error exporting to Excel:', error);
+        showNotification('Error al generar el archivo Excel', 'error');
+      } finally {
+        hideLoading();
+      }
+    });
+    
+    // Functions
+    function handleFileUpload(file) {
+      if (!file) return;
+      
+      // Check if the file is a PDF
+      if (file.type !== 'application/pdf') {
+        showNotification('Por favor, sube solo archivos PDF', 'error');
+        return;
+      }
+      
+      // Check file size (max 50MB)
+      if (file.size > 50 * 1024 * 1024) {
+        showNotification('El archivo excede el tamaño máximo de 50MB', 'error');
+        return;
+      }
+      
+      currentPdfFile = file;
+      fileName.textContent = file.name;
+      
+      // Show loading
+      showLoading('Cargando PDF...');
+      
+      // Load and render the PDF
+      const fileReader = new FileReader();
+      
+      fileReader.onload = function(event) {
+        const typedarray = new Uint8Array(event.target.result);
+        
+        // Load the PDF
+        pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+          pdfDoc = pdf;
+          renderPage(1);
+          
+          // Update UI
+          uploadSection.classList.add('hidden');
+          documentSection.classList.remove('hidden');
+          
+          hideLoading();
+        }).catch(function(error) {
+          console.error('Error loading PDF:', error);
+          showNotification('Error al cargar el PDF', 'error');
+          hideLoading();
+        });
+      };
+      
+      fileReader.readAsArrayBuffer(file);
+      
+      // Save to localStorage
+      saveToLocalStorage();
+    }
+    
+    function renderPage(pageNum) {
+      pageRendering = true;
+      
+      pdfDoc.getPage(pageNum).then(function(page) {
+        const viewport = page.getViewport({ scale: 1.5 });
+        
+        // Clear previous content
+        while (pdfViewer.firstChild) {
+          pdfViewer.removeChild(pdfViewer.firstChild);
+        }
+        
+        // Prepare canvas
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        pdfViewer.appendChild(canvas);
+        
+        // Render PDF page
+        const renderContext = {
+          canvasContext: context,
+          viewport: viewport
+        };
+        
+        page.render(renderContext).promise.then(function() {
+          pageRendering = false;
+          currentPage = pageNum;
+        });
+      });
+    }
+    
+    function populateDataTable(data) {
+      // Clear existing data
+      dataTableBody.innerHTML = '';
+      
+      if (!data || data.length === 0) {
+        noDataMessage.classList.remove('hidden');
+        return;
+      }
+      
+      noDataMessage.classList.add('hidden');
+      
+      // Add data rows
+      data.forEach((item, index) => {
+        const row = document.createElement('tr');
+        
+        // Create editable cells for each field
+        const fields = [
+          'nombre', 'rfc', 'serieYFolio', 'folioFiscal', 
+          'cantidad', 'unidad', 'claveSAT', 'concepto', 
+          'precioUnitario', 'importe'
+        ];
+        
+        fields.forEach(field => {
+          const cell = document.createElement('td');
+          cell.className = 'px-6 py-4 whitespace-nowrap';
+          
+          const div = document.createElement('div');
+          div.className = 'editable-cell text-sm text-gray-900 p-1 rounded';
+          div.setAttribute('contenteditable', 'true');
+          div.setAttribute('data-index', index);
+          div.setAttribute('data-field', field);
+          div.textContent = item[field] || '';
+          
+          // Add event listener for editing
+          div.addEventListener('blur', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            const fld = e.target.getAttribute('data-field');
+            const newValue = e.target.textContent.trim();
+            
+            // Update data
+            extractedData[idx][fld] = newValue;
+            
+            // Save to localStorage
+            saveToLocalStorage();
+          });
+          
+          cell.appendChild(div);
+          row.appendChild(cell);
+        });
+        
+        dataTableBody.appendChild(row);
+      });
+    }
+    
+    function showLoading(message) {
+      loadingText.textContent = message;
+      loadingOverlay.classList.remove('hidden');
+    }
+    
+    function hideLoading() {
+      loadingOverlay.classList.add('hidden');
+    }
+    
+    function showNotification(message, type) {
+      const bgColor = type === 'success' ? '#10B981' : '#EF4444';
+      
+      Toastify({
+        text: message,
+        duration: 3000,
+        close: true,
+        gravity: "top",
+        position: "right",
+        backgroundColor: bgColor,
+        stopOnFocus: true
+      }).showToast();
+    }
+    
+    function resetApp() {
+      currentPdfFile = null;
+      extractedData = null;
+      pdfDoc = null;
+      
+      // Clear PDF viewer
+      while (pdfViewer.firstChild) {
+        pdfViewer.removeChild(pdfViewer.firstChild);
+      }
+      
+      // Reset file input
+      fileInput.value = '';
+      
+      // Clear data table
+      dataTableBody.innerHTML = '';
+      
+      // Disable export button
+      exportExcelBtn.disabled = true;
+      
+      // Hide extraction info
+      extractionInfo.classList.add('hidden');
+      
+      // Clear localStorage
+      localStorage.removeItem('pdfToExcelApp');
+    }
+    
+    function saveToLocalStorage() {
+      const appData = {
+        hasFile: !!currentPdfFile,
+        fileName: currentPdfFile ? currentPdfFile.name : null,
+        extractedData: extractedData
+      };
+      
+      localStorage.setItem('pdfToExcelApp', JSON.stringify(appData));
+    }
+    
+    function loadFromLocalStorage() {
+      const savedData = localStorage.getItem('pdfToExcelApp');
+      
+      if (savedData) {
+        try {
+          const appData = JSON.parse(savedData);
+          
+          if (appData.extractedData) {
+            extractedData = appData.extractedData;
+            populateDataTable(extractedData);
+            dataSection.classList.remove('hidden');
+            exportExcelBtn.disabled = false;
+          }
+        } catch (error) {
+          console.error('Error loading data from localStorage:', error);
+        }
+      }
+    }
+    
+    // Initialize the app
+    loadFromLocalStorage();
+  </script>
+</body>
+</html>
