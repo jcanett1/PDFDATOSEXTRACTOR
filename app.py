@@ -11,17 +11,11 @@
   <!-- Font Awesome -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   
-  <!-- PDF.js library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  
-  <!-- SheetJS (XLSX) for Excel export -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  
   <!-- Toastify JS for notifications -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
   <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
   
-  <style id="app-style">
+  <style>
     .drag-area {
       border: 2px dashed #4F46E5;
       transition: all 0.3s ease;
@@ -30,16 +24,6 @@
     .drag-area.active {
       border: 2px solid #4F46E5;
       background-color: rgba(79, 70, 229, 0.1);
-    }
-    
-    #pdf-viewer {
-      min-height: 500px;
-      background-color: #f8f8f8;
-      overflow: auto;
-    }
-    
-    .editable-cell:hover {
-      background-color: #f0f9ff;
     }
     
     .loading-overlay {
@@ -77,17 +61,6 @@
     .data-table-container {
       max-height: 400px;
       overflow-y: auto;
-    }
-    
-    @media (max-width: 768px) {
-      .pdf-data-container {
-        flex-direction: column;
-      }
-      
-      #pdf-viewer {
-        min-height: 300px;
-        max-height: 400px;
-      }
     }
   </style>
 </head>
@@ -133,12 +106,16 @@
           </div>
         </div>
         
-        <div class="flex pdf-data-container gap-6 flex-col md:flex-row">
-          <div class="w-full md:w-1/2">
-            <div id="pdf-viewer" class="border rounded-lg"></div>
+        <div class="flex flex-col gap-6">
+          <div class="w-full">
+            <iframe id="pdf-preview" class="w-full h-96 border rounded-lg" style="display: none;"></iframe>
+            <div id="no-preview" class="text-center py-8 text-gray-500">
+              <i class="fas fa-file-pdf text-4xl mb-2"></i>
+              <p>Vista previa no disponible</p>
+            </div>
           </div>
           
-          <div class="w-full md:w-1/2">
+          <div class="w-full">
             <button id="extract-data" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-4 rounded-lg mb-4 flex items-center justify-center transition">
               <i class="fas fa-magic mr-2"></i> Extraer Datos
             </button>
@@ -198,7 +175,7 @@
   <footer class="fixed bottom-0 left-0 w-full bg-white border-t shadow-md p-4">
     <div class="container mx-auto flex justify-between items-center">
       <div>
-        <p class="text-sm text-gray-600">Los datos extraídos son guardados localmente durante la sesión.</p>
+        <p class="text-sm text-gray-600">Los datos extraídos son procesados en el servidor.</p>
       </div>
       <button id="export-excel" class="bg-green-600 hover:bg-green-700 text-white py-2 px-6 rounded-lg flex items-center transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
         <i class="fas fa-file-excel mr-2"></i> Exportar a Excel
@@ -211,17 +188,13 @@
     <p id="loading-text" class="text-gray-700">Procesando documento...</p>
   </div>
 
-  <script id="app-script">
-    // Initialize PDF.js
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    
+  <script>
     // DOM elements
     const dragArea = document.getElementById('drag-area');
     const fileInput = document.getElementById('file-input');
     const uploadSection = document.getElementById('upload-section');
     const documentSection = document.getElementById('document-section');
     const dataSection = document.getElementById('data-section');
-    const pdfViewer = document.getElementById('pdf-viewer');
     const fileName = document.getElementById('file-name');
     const changeFileBtn = document.getElementById('change-file');
     const extractDataBtn = document.getElementById('extract-data');
@@ -231,13 +204,12 @@
     const extractionInfo = document.getElementById('extraction-info');
     const loadingOverlay = document.getElementById('loading-overlay');
     const loadingText = document.getElementById('loading-text');
+    const pdfPreview = document.getElementById('pdf-preview');
+    const noPreview = document.getElementById('no-preview');
     
     // State variables
     let currentPdfFile = null;
     let extractedData = null;
-    let pdfDoc = null;
-    let currentPage = 1;
-    let pageRendering = false;
     
     // Event Listeners
     dragArea.addEventListener('dragover', (e) => {
@@ -281,50 +253,30 @@
       showLoading('Extrayendo datos del PDF...');
       
       try {
-        // Simulate API call for extracting data
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        const formData = new FormData();
+        formData.append('filename', currentPdfFile.name);
         
-        // Create sample extracted data (in a real app, this would come from the API)
-        extractedData = [
-          {
-            nombre: 'Empresa Demo SA de CV',
-            rfc: 'EDM201505HJ7',
-            serieYFolio: 'A-12345',
-            folioFiscal: 'FOLIO-FISCAL-UUID-12345-67890',
-            cantidad: '10',
-            unidad: 'PZA',
-            claveSAT: '43211500',
-            concepto: 'Computadoras portátiles',
-            precioUnitario: '15000.00',
-            importe: '150000.00'
-          },
-          {
-            nombre: 'Empresa Demo SA de CV',
-            rfc: 'EDM201505HJ7',
-            serieYFolio: 'A-12345',
-            folioFiscal: 'FOLIO-FISCAL-UUID-12345-67890',
-            cantidad: '5',
-            unidad: 'PZA',
-            claveSAT: '43211900',
-            concepto: 'Monitores de computadora',
-            precioUnitario: '3500.00',
-            importe: '17500.00'
-          }
-        ];
+        const response = await fetch('/extract', {
+          method: 'POST',
+          body: formData
+        });
         
-        // Update the UI
-        populateDataTable(extractedData);
-        dataSection.classList.remove('hidden');
-        extractionInfo.classList.remove('hidden');
-        exportExcelBtn.disabled = false;
+        const result = await response.json();
         
-        // Save to localStorage
-        saveToLocalStorage();
-        
-        showNotification('Datos extraídos correctamente', 'success');
+        if (response.ok) {
+          extractedData = result.data;
+          populateDataTable(extractedData);
+          dataSection.classList.remove('hidden');
+          extractionInfo.classList.remove('hidden');
+          exportExcelBtn.disabled = false;
+          
+          showNotification('Datos extraídos correctamente', 'success');
+        } else {
+          throw new Error(result.error || 'Error al extraer datos');
+        }
       } catch (error) {
         console.error('Error extracting data:', error);
-        showNotification('Error al extraer datos del PDF', 'error');
+        showNotification(error.message, 'error');
       } finally {
         hideLoading();
       }
@@ -336,34 +288,33 @@
       showLoading('Generando archivo Excel...');
       
       try {
-        // Simulate API call for exporting to Excel
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        const response = await fetch('/export', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ data: extractedData })
+        });
         
-        // Create workbook
-        const workbook = XLSX.utils.book_new();
-        const worksheet = XLSX.utils.json_to_sheet(extractedData);
-        
-        // Add the worksheet to the workbook
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Datos Extraídos');
-        
-        // Generate Excel file
-        const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-        
-        // Create Blob and download
-        const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const url = URL.createObjectURL(blob);
-        
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'datos_extraidos.xlsx';
-        link.click();
-        
-        URL.revokeObjectURL(url);
-        
-        showNotification('Excel generado y descargado correctamente', 'success');
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'datos_extraidos.xlsx';
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          a.remove();
+          
+          showNotification('Excel generado y descargado correctamente', 'success');
+        } else {
+          const error = await response.json();
+          throw new Error(error.error || 'Error al generar Excel');
+        }
       } catch (error) {
         console.error('Error exporting to Excel:', error);
-        showNotification('Error al generar el archivo Excel', 'error');
+        showNotification(error.message, 'error');
       } finally {
         hideLoading();
       }
@@ -374,7 +325,7 @@
       if (!file) return;
       
       // Check if the file is a PDF
-      if (file.type !== 'application/pdf') {
+      if (!file.type.match('application/pdf')) {
         showNotification('Por favor, sube solo archivos PDF', 'error');
         return;
       }
@@ -389,65 +340,44 @@
       fileName.textContent = file.name;
       
       // Show loading
-      showLoading('Cargando PDF...');
+      showLoading('Subiendo PDF...');
       
-      // Load and render the PDF
-      const fileReader = new FileReader();
+      // Upload the file to the server
+      const formData = new FormData();
+      formData.append('file', file);
       
-      fileReader.onload = function(event) {
-        const typedarray = new Uint8Array(event.target.result);
-        
-        // Load the PDF
-        pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
-          pdfDoc = pdf;
-          renderPage(1);
-          
-          // Update UI
-          uploadSection.classList.add('hidden');
-          documentSection.classList.remove('hidden');
-          
-          hideLoading();
-        }).catch(function(error) {
-          console.error('Error loading PDF:', error);
-          showNotification('Error al cargar el PDF', 'error');
-          hideLoading();
-        });
-      };
-      
-      fileReader.readAsArrayBuffer(file);
-      
-      // Save to localStorage
-      saveToLocalStorage();
-    }
-    
-    function renderPage(pageNum) {
-      pageRendering = true;
-      
-      pdfDoc.getPage(pageNum).then(function(page) {
-        const viewport = page.getViewport({ scale: 1.5 });
-        
-        // Clear previous content
-        while (pdfViewer.firstChild) {
-          pdfViewer.removeChild(pdfViewer.firstChild);
+      fetch('/upload', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          throw new Error(data.error);
         }
         
-        // Prepare canvas
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        pdfViewer.appendChild(canvas);
+        // Try to show preview (not all browsers support PDF preview)
+        try {
+          const fileUrl = URL.createObjectURL(file);
+          pdfPreview.src = fileUrl;
+          pdfPreview.style.display = 'block';
+          noPreview.style.display = 'none';
+        } catch (e) {
+          pdfPreview.style.display = 'none';
+          noPreview.style.display = 'block';
+        }
         
-        // Render PDF page
-        const renderContext = {
-          canvasContext: context,
-          viewport: viewport
-        };
-        
-        page.render(renderContext).promise.then(function() {
-          pageRendering = false;
-          currentPage = pageNum;
-        });
+        // Update UI
+        uploadSection.classList.add('hidden');
+        documentSection.classList.remove('hidden');
+      })
+      .catch(error => {
+        console.error('Error uploading file:', error);
+        showNotification(error.message, 'error');
+        currentPdfFile = null;
+      })
+      .finally(() => {
+        hideLoading();
       });
     }
     
@@ -492,9 +422,6 @@
             
             // Update data
             extractedData[idx][fld] = newValue;
-            
-            // Save to localStorage
-            saveToLocalStorage();
           });
           
           cell.appendChild(div);
@@ -531,12 +458,6 @@
     function resetApp() {
       currentPdfFile = null;
       extractedData = null;
-      pdfDoc = null;
-      
-      // Clear PDF viewer
-      while (pdfViewer.firstChild) {
-        pdfViewer.removeChild(pdfViewer.firstChild);
-      }
       
       // Reset file input
       fileInput.value = '';
@@ -550,41 +471,10 @@
       // Hide extraction info
       extractionInfo.classList.add('hidden');
       
-      // Clear localStorage
-      localStorage.removeItem('pdfToExcelApp');
+      // Hide PDF preview
+      pdfPreview.style.display = 'none';
+      noPreview.style.display = 'block';
     }
-    
-    function saveToLocalStorage() {
-      const appData = {
-        hasFile: !!currentPdfFile,
-        fileName: currentPdfFile ? currentPdfFile.name : null,
-        extractedData: extractedData
-      };
-      
-      localStorage.setItem('pdfToExcelApp', JSON.stringify(appData));
-    }
-    
-    function loadFromLocalStorage() {
-      const savedData = localStorage.getItem('pdfToExcelApp');
-      
-      if (savedData) {
-        try {
-          const appData = JSON.parse(savedData);
-          
-          if (appData.extractedData) {
-            extractedData = appData.extractedData;
-            populateDataTable(extractedData);
-            dataSection.classList.remove('hidden');
-            exportExcelBtn.disabled = false;
-          }
-        } catch (error) {
-          console.error('Error loading data from localStorage:', error);
-        }
-      }
-    }
-    
-    // Initialize the app
-    loadFromLocalStorage();
   </script>
 </body>
 </html>
